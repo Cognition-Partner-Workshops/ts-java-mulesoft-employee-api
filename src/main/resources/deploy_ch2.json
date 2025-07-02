@@ -1,0 +1,7 @@
+{
+  "applicationName": "employeeserviceapi",
+  "runtime": "4.9.6:5e-java17",
+  "replicas": 1,
+  "replicaSize": "0.1",
+  "deploymentModel": "rolling"
+}

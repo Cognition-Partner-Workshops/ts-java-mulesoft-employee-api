@@ -1,0 +1,73 @@
+{
+  "basicConstraints": 89,
+  "criticalExtensionOIDs": [
+    "Aliquam",
+    "amet",
+    "Pellentesque"
+  ],
+  "extendedKeyUsage": [
+    "sed",
+    "semper"
+  ],
+  "extensions": [
+    {
+      "criticality": true,
+      "oid": "semper"
+    }
+  ],
+  "issuerAlternativeNames": [
+    {
+      "name": "Chi",
+      "type": 76
+    }
+  ],
+  "issuerDN": {
+    "commonName": "nunc",
+    "name": "Anabel"
+  },
+  "issuerUniqueID": [
+    false,
+    true,
+    false
+  ],
+  "issuerX500Principal": {
+    "name": "Courtney"
+  },
+  "keyUsage": [
+    false,
+    false
+  ],
+  "name": "Abdul",
+  "nonCriticalExtensionOIDs": [
+    "Aliquam",
+    "nisi",
+    "lectus"
+  ],
+  "publicKey": {
+    "algorithm": "ipsum",
+    "modulus": 26,
+    "params": 78,
+    "publicKey": "erat"
+  },
+  "serialNumber": 35,
+  "serialNumberObject": {
+    "serialNumber": 24
+  },
+  "sigAlgName": "nunc",
+  "sigAlgOID": "dui",
+  "subjectAlternativeNames": [
+    {
+      "name": "Aleisha",
+      "type": 39
+    }
+  ],
+  "subjectDN": {
+    "commonName": "venenatis",
+    "name": "Amee"
+  },
+  "subjectX500Principal": {
+    "name": "Aleshia"
+  },
+  "type": "pretium",
+  "version": 86
+}
