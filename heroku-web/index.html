@@ -106,6 +106,18 @@
             border-radius: 5px;
             display: none;
         }
+        .config-section {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 5px;
+            margin-bottom: 1rem;
+        }
+        .config-section label {
+            font-size: 0.9rem;
+        }
+        .config-section input {
+            font-size: 0.9rem;
+        }
     </style>
 </head>
 <body>
@@ -113,6 +125,14 @@
         <div class="login-header">
             <h1>Welcome Back</h1>
             <p>Sign in to access Employee Services</p>
+        </div>
+        
+        <!-- Configuration Section -->
+        <div class="config-section">
+            <div class="form-group">
+                <label for="apiUrl">API Base URL</label>
+                <input type="url" id="apiUrl" value="https://employee-api-jtx6w5.5sc6y6-2.usa-e2.cloudhub.io" placeholder="https://your-api-domain.com">
+            </div>
         </div>
         
         <div id="errorMessage" class="error-message"></div>
@@ -158,79 +178,97 @@
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
             
+            // Get clientId and userId from multiple sources
+            let clientId = '';
+            let salesforceUserId = '';
+            
+            // Check hidden form fields first
+            if (document.getElementById('clientId')) {
+                clientId = document.getElementById('clientId').value;
+            }
+            if (document.getElementById('salesforceUserId')) {
+                salesforceUserId = document.getElementById('salesforceUserId').value;
+            }
+            
+            // Fallback to injected JavaScript config
+            if (!clientId && window.salesforceConfig) {
+                clientId = window.salesforceConfig.clientId;
+                salesforceUserId = window.salesforceConfig.userId;
+            }
+            
+            // Last fallback to URL parameters
+            if (!clientId) {
+                clientId = getUrlParameter('clientId');
+                salesforceUserId = getUrlParameter('userId');
+            }
+            
+            console.log('Form submission data:', { username: username ? 'provided' : 'missing', password: password ? 'provided' : 'missing', clientId, salesforceUserId });
+            
             hideMessages();
             
             try {
-                // Include userId in login request for Salesforce integration
-                const loginPayload = {
+                // Use JSON for authentication endpoint instead of FormData
+                const authData = {
                     username: username,
                     password: password
                 };
+                
+                if (clientId) authData.clientId = clientId;
+                if (salesforceUserId) authData.salesforceUserId = salesforceUserId;
 
-                // Add userId if we're in Salesforce context
-                if (salesforceUserId) {
-                    loginPayload.userId = salesforceUserId;
-                }
-
-                const response = await fetch('/auth/login', {
+                const response = await fetch('/authenticate', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify(loginPayload)
+                    body: JSON.stringify(authData)
                 });
                 
                 const data = await response.json();
                 
                 if (response.ok && data.access_token) {
-                    // Check if we're in Salesforce popup mode
-                    if (isPopup && window.opener) {
-                        // Salesforce Named Credentials integration
-                        showSuccess('Authentication successful! Connecting to Salesforce...');
+                    // Store token and API URL for future use
+                    localStorage.setItem('access_token', data.access_token);
+                    localStorage.setItem('api_url', apiUrl);
+                    if (data.user) localStorage.setItem('user_info', JSON.stringify(data.user));
+                    
+                    // Send token back to parent Salesforce window
+                    if (window.opener) {
+                        console.log('=== SENDING POSTMESSAGE FROM CLIENT ===');
+                        console.log('Message data:', {
+                            type: 'API_AUTH_SUCCESS',
+                            token: data.access_token,
+                            refresh_token: data.refresh_token,
+                            userId: data.user_id,
+                            clientId: data.clientId
+                        });
                         
-                        // Send token data to Salesforce parent window
                         window.opener.postMessage({
                             type: 'API_AUTH_SUCCESS',
                             token: data.access_token,
                             refresh_token: data.refresh_token,
-                            userId: data.user_id || salesforceUserId,
-                            client_id: data.client_id,
-                            expires_in: data.expires_in
+                            userId: data.user_id,
+                            clientId: data.clientId
                         }, '*');
-
-                        // Close popup after slight delay
+                        
+                        // Close the popup window after 1 second
                         setTimeout(() => {
                             window.close();
-                        }, 1500);
+                        }, 1000);
                     } else {
-                        // Standard web login (not popup)
+                        // Fallback: show success message if not in popup
                         showSuccess('Login successful! Your access token: ' + data.access_token);
-                        localStorage.setItem('access_token', data.access_token);
-                        localStorage.setItem('refresh_token', data.refresh_token);
-                        
+                        // Show token for 5 seconds then clear form
                         setTimeout(() => {
                             document.getElementById('loginForm').reset();
                             hideMessages();
-                        }, 5000);
+                        }, 8000);
                     }
                 } else {
-                    const errorMessage = data.error_description || data.error || 'Login failed';
-                    showError(errorMessage);
-                    
-                    // Send error to Salesforce if in popup mode
-                    if (isPopup && window.opener) {
-                        window.opener.postMessage({
-                            type: 'API_AUTH_ERROR',
-                            error: 'Authentication failed: ' + errorMessage
-                        }, '*');
-                        
-                        setTimeout(() => {
-                            window.close();
-                        }, 3000);
-                    }
+                    showError(data.error_description || data.error || 'Login failed');
                 }
             } catch (error) {
-                const errorMessage = 'Network error: Unable to connect to server';
+                const errorMessage = 'Network error: Unable to connect to server. Check the API URL.';
                 showError(errorMessage);
                 
                 // Send network error to Salesforce if in popup mode
@@ -244,6 +282,14 @@
                         window.close();
                     }, 3000);
                 }
+            }
+        });
+        
+        // Load saved API URL on page load
+        window.addEventListener('load', function() {
+            const savedApiUrl = localStorage.getItem('api_url');
+            if (savedApiUrl) {
+                document.getElementById('apiUrl').value = savedApiUrl;
             }
         });
         

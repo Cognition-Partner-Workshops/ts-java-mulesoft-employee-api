@@ -77,19 +77,6 @@
         </dependency>
         <dependency>
             <groupId>org.mule.modules</groupId>
-            <artifactId>mule-oauth-module</artifactId>
-            <version>1.1.17</version>
-            <classifier>mule-plugin</classifier>
-        </dependency>
-        <dependency>
-            <groupId>3ae95e6c-7a0a-431f-9757-3f2c7caca7cd</groupId>
-            <artifactId>employee-services-api</artifactId>
-            <version>1.0.0</version>
-            <classifier>oas</classifier>
-            <type>zip</type>
-        </dependency>
-        <dependency>
-            <groupId>org.mule.modules</groupId>
             <artifactId>mule-apikit-module</artifactId>
             <version>1.11.6</version>
             <classifier>mule-plugin</classifier>
