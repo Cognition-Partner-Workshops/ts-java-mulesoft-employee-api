@@ -19,7 +19,7 @@ curl -X POST "$API_URL/auth/login" \
   -d "{
     \"username\": \"$USERNAME\",
     \"password\": \"$PASSWORD\",
-    \"callback_url\": \"https://redacted-org.lightning.force.com/services/apexrest/api/auth/callback/\",
+    \"callback_url\": \"https://your-salesforce-org.lightning.force.com/services/apexrest/api/auth/callback/\",
     \"salesforce_user_id\": \"$SALESFORCE_USER_ID\"
   }" \
   --verbose

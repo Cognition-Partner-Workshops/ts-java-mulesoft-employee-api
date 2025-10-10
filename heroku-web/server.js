@@ -173,7 +173,7 @@ app.post('/authenticate', async (req, res) => {
                     // Send to multiple origins for reliability
                     const targetOrigins = [
                         '*',
-                        'https://redacted-org.lightning.force.com'
+                        'https://trailsignup-c73971618265f0.lightning.force.com'
                     ];
                     
                     targetOrigins.forEach(origin => {
@@ -313,7 +313,7 @@ app.get('/test-postmessage', (req, res) => {
                             addLog('SUCCESS postMessage sent to *');
                             
                             // Also try specific Salesforce domain
-                            window.opener.postMessage(testData, 'https://redacted-org.lightning.force.com');
+                            window.opener.postMessage(testData, 'https://trailsignup-c73971618265f0.lightning.force.com');
                             addLog('SUCCESS postMessage sent to Salesforce domain');
                         } catch (error) {
                             addLog('ERROR sending postMessage: ' + error.message);

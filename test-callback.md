@@ -15,7 +15,7 @@ curl -X POST http://your-api-url/oauth/token \
     "client_id": "your_client_id",
     "client_secret": "your_client_secret",
     "grant_type": "client_credentials",
-    "callback_url": "https://redacted-org.lightning.force.com/services/apexrest/api/auth/callback/"
+    "callback_url": "https://your-salesforce-org.lightning.force.com/services/apexrest/api/auth/callback/"
   }'
 ```
 
@@ -27,7 +27,7 @@ curl -X POST http://your-api-url/auth/login \
   -d '{
     "username": "your_username",
     "password": "your_password",
-    "callback_url": "https://redacted-org.lightning.force.com/services/apexrest/api/auth/callback/",
+    "callback_url": "https://your-salesforce-org.lightning.force.com/services/apexrest/api/auth/callback/",
     "salesforce_user_id": "your_sf_user_id"
   }'
 ```

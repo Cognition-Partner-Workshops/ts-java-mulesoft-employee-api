@@ -1,6 +1,6 @@
 {
-  "client_id": "redacted_client_id",
-  "client_secret": "YOUR_CLIENT_SECRET_HERE",
+  "client_id": "your_client_id_here",
+  "client_secret": "your_client_secret_here",
   "grant_type": "client_credentials",
-  "callback_url": "https://redacted-org.lightning.force.com/services/apexrest/api/auth/callback/"
+  "callback_url": "https://your-salesforce-org.lightning.force.com/services/apexrest/api/auth/callback/"
 }

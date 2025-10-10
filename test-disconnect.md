@@ -63,7 +63,7 @@ curl -X POST "https://employee-api-jtx6w5.5sc6y6-2.usa-e2.cloudhub.io/api/discon
 curl -X POST "https://employee-api-jtx6w5.5sc6y6-2.usa-e2.cloudhub.io/api/disconnect" \
   -H "Content-Type: application/json" \
   -d '{
-    "userId": "005XXXXXXXXXXXXXXX"
+    "userId": "005Ka000001pgh7IAA"
   }'
 ```
 

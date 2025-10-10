@@ -15,7 +15,7 @@ Your Heroku web app (`heroku-web/index.html`) has been updated to support Salesf
 
 ### **Step 1: Navigate to Heroku folder**
 ```bash
-cd "/Users/redacted_user/Documents/SFDX Projects/partnerAgentSamples/employee-service-api/heroku-web"
+cd "/path/to/your/project/heroku-web"
 ```
 
 ### **Step 2: Deploy to Heroku**
@@ -37,7 +37,7 @@ git push heroku main
 ## 🎯 **Updated Authentication Flow**
 
 ### **What Happens Now:**
-1. **Salesforce opens popup**: `https://partnerapiwebauth-20c01287ca0d.herokuapp.com/?userId=005XXXXXXXXXXXXXXX`
+1. **Salesforce opens popup**: `https://your-heroku-app.herokuapp.com/?userId=005XXXXXXXXXXXXXXX`
 2. **User enters credentials** on Heroku web page
 3. **Web page calls MuleSoft API**: `POST /auth/login` with userId
 4. **MuleSoft returns tokens**: access_token, refresh_token, user_id, client_id, expires_in
@@ -75,7 +75,7 @@ Deploy the updated web app (instructions above)
 
 1. **Direct web page test**:
    ```
-   https://partnerapiwebauth-20c01287ca0d.herokuapp.com/?userId=005XXXXXXXXXXXXXXX
+   https://your-heroku-app.herokuapp.com/?userId=005XXXXXXXXXXXXXXX
    ```
 
 2. **Check the response** - Should show "Connecting your Salesforce account to Employee Services"
@@ -92,7 +92,7 @@ Your Heroku app now sends this enhanced data to Salesforce:
   type: 'API_AUTH_SUCCESS',
   token: 'access_token_here',
   refresh_token: 'refresh_token_here',
-  userId: '005XXXXXXXXXXXXXXX', 
+  userId: '005Ka000001pgh7IAA', 
   client_id: 'client_id_from_mulesoft',
   expires_in: 3600
 }

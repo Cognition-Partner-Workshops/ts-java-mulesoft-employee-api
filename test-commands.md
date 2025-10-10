@@ -17,7 +17,7 @@ curl -X POST "YOUR_API_URL/oauth/token" \
     "client_id": "YOUR_CLIENT_ID",
     "client_secret": "YOUR_CLIENT_SECRET", 
     "grant_type": "client_credentials",
-    "callback_url": "https://redacted-org.lightning.force.com/services/apexrest/api/auth/callback/"
+    "callback_url": "https://your-salesforce-org.lightning.force.com/services/apexrest/api/auth/callback/"
   }' \
   --verbose
 ```
@@ -25,19 +25,19 @@ curl -X POST "YOUR_API_URL/oauth/token" \
 ### Step 2B: Test Login Flow
 
 **Replace these values:**
-- `https://employee-api-jtx6w5.5sc6y6-2.usa-e2.cloudhub.io` - Your CloudHub URL
-- `redacted_user` - An existing username from your users table
-- `REDACTED_PASSWORD` - The password for that user
+- `https://your-mulesoft-api.cloudhub.io` - Your CloudHub URL
+- `your_username` - An existing username from your users table
+- `your_password_here` - The password for that user
 - `005XXXXXXXXXXXXXXX` - Your Salesforce user ID (optional)
 
 ```bash
-curl -X POST "https://employee-api-jtx6w5.5sc6y6-2.usa-e2.cloudhub.io/auth/login" \
+curl -X POST "https://your-mulesoft-api.cloudhub.io/auth/login" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json" \
   -d '{
-    "username": "redacted_user",
-    "password": "REDACTED_PASSWORD",
-    "callback_url": "https://redacted-org.lightning.force.com/services/apexrest/api/auth/callback/",
+    "username": "your_username",
+    "password": "your_password_here",
+    "callback_url": "https://your-salesforce-org.lightning.force.com/services/apexrest/api/auth/callback/",
     "salesforce_user_id": "005XXXXXXXXXXXXXXX"
   }' \
   --verbose

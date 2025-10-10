@@ -41,8 +41,8 @@ First, run the database migration:
 **Test Request:**
 ```json
 {
-  "username": "redacted_user",
-  "password": "REDACTED_PASSWORD",
+  "username": "your_username",
+  "password": "your_password_here",
   "userId": "005XXXXXXXXXXXXXXX"
 }
 ```
@@ -55,7 +55,7 @@ First, run the database migration:
   "token_type": "Bearer",
   "expires_in": 3600,
   "user_id": "005XXXXXXXXXXXXXXX",
-  "client_id": "redacted_client_id",
+  "client_id": "your_client_id_here",
   "scope": "read write"
 }
 ```
@@ -128,18 +128,18 @@ Authorization: Bearer your-access-token-here
 
 ### **Login Test:**
 ```bash
-curl -X POST "https://employee-api-jtx6w5.5sc6y6-2.usa-e2.cloudhub.io/auth/login" \
+curl -X POST "https://your-mulesoft-api.cloudhub.io/auth/login" \
   -H "Content-Type: application/json" \
   -d '{
-    "username": "redacted_user",
-    "password": "REDACTED_PASSWORD",
+    "username": "your_username",
+    "password": "your_password_here",
     "userId": "005XXXXXXXXXXXXXXX"
   }'
 ```
 
 ### **Refresh Token Test:**
 ```bash
-curl -X POST "https://employee-api-jtx6w5.5sc6y6-2.usa-e2.cloudhub.io/auth/refresh-token" \
+curl -X POST "https://your-mulesoft-api.cloudhub.io/auth/refresh-token" \
   -H "Content-Type: application/json" \
   -d '{
     "refresh_token": "REFRESH_TOKEN_FROM_LOGIN_RESPONSE"
@@ -148,7 +148,7 @@ curl -X POST "https://employee-api-jtx6w5.5sc6y6-2.usa-e2.cloudhub.io/auth/refre
 
 ### **Protected API Test:**
 ```bash
-curl -X GET "https://employee-api-jtx6w5.5sc6y6-2.usa-e2.cloudhub.io/api/employee/123/goals" \
+curl -X GET "https://your-mulesoft-api.cloudhub.io/api/employee/123/goals" \
   -H "Authorization: Bearer ACCESS_TOKEN_FROM_LOGIN_RESPONSE"
 ```
 
@@ -181,14 +181,14 @@ ORDER BY updated_at DESC;
 
 In Salesforce, create a Named Credential with:
 
-1. **URL:** `https://employee-api-jtx6w5.5sc6y6-2.usa-e2.cloudhub.io`
+1. **URL:** `https://your-mulesoft-api.cloudhub.io`
 2. **Identity Type:** `Named Principal`
 3. **Authentication Protocol:** `OAuth 2.0`
 4. **OAuth Flow:** `Authorization Code`
 5. **Scope:** `read write`
-6. **Authorization Endpoint:** `https://employee-api-jtx6w5.5sc6y6-2.usa-e2.cloudhub.io/web/login`
-7. **Token Endpoint:** `https://employee-api-jtx6w5.5sc6y6-2.usa-e2.cloudhub.io/auth/login`
-8. **Token Refresh Endpoint:** `https://employee-api-jtx6w5.5sc6y6-2.usa-e2.cloudhub.io/auth/refresh-token`
+6. **Authorization Endpoint:** `https://your-mulesoft-api.cloudhub.io/web/login`
+7. **Token Endpoint:** `https://your-mulesoft-api.cloudhub.io/auth/login`
+8. **Token Refresh Endpoint:** `https://your-mulesoft-api.cloudhub.io/auth/refresh-token`
 
 ---
 

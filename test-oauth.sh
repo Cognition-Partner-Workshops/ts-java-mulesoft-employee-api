@@ -19,7 +19,7 @@ curl -X POST "$API_URL/oauth/token" \
     \"client_id\": \"$CLIENT_ID\",
     \"client_secret\": \"$CLIENT_SECRET\",
     \"grant_type\": \"client_credentials\",
-    \"callback_url\": \"https://redacted-org.lightning.force.com/services/apexrest/api/auth/callback/\"
+    \"callback_url\": \"https://your-salesforce-org.lightning.force.com/services/apexrest/api/auth/callback/\"
   }" \
   --verbose
 

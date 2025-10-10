@@ -47,3 +47,19 @@ target/
 .mule/
 .DS_Store
 velocity.log
+
+# -------------------- #
+# Security - Sensitive Files #
+# -------------------- #
+# Environment configuration with credentials
+.env
+.env.*
+*.credentials
+
+# Test files that may contain real credentials
+# (Keep the template files but ignore local copies with real data)
+*-test-local.json
+*-credentials.json
+
+# Personal configuration
+local.properties
