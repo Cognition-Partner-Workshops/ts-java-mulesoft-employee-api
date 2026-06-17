@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 This is a **MuleSoft Mule 4** application that provides an Employee Service API. The application is built using:
-- Mule Runtime 4.9.6+ with Java 17
+- Mule Runtime 4.9.6+ with Java 21
 - Maven for dependency management
 - PostgreSQL database for data persistence
 - OAuth2 client credentials authentication
