@@ -70,7 +70,8 @@ app.get('/login', (req, res) => {
 // POST route for handling authentication
 app.post('/authenticate', async (req, res) => {
     console.log('Authentication request received:', req.body);
-    const { username, password, clientId, salesforceUserId } = req.body;
+    // req.body is undefined when no body parser matched the request content type
+    const { username, password, clientId, salesforceUserId } = req.body || {};
     
     console.log('Extracted fields:', { 
         username: username ? 'provided' : 'missing', 
