@@ -63,3 +63,5 @@ velocity.log
 
 # Personal configuration
 local.properties
+# Node
+heroku-web/node_modules/
