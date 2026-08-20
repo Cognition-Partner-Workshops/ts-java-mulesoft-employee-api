@@ -98,8 +98,6 @@ jobs:
           cache: npm
           cache-dependency-path: heroku-web/package-lock.json
 
-      # package-lock.json is gitignored today; fall back to `npm install` so the
-      # job stays green until the lockfile is committed.
       - name: Install dependencies
         run: |
           if [ -f package-lock.json ]; then
@@ -260,7 +258,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq shellcheck
-          shellcheck $(git ls-files '*.sh')
+          git ls-files -z '*.sh' | xargs -0 -r shellcheck
 
   dependency-scan:
     name: Dependency vulnerability scan

@@ -62,4 +62,5 @@ velocity.log
 *-credentials.json
 
 # Personal configuration
-local.propertiesnode_modules/
+local.properties
+node_modules/
