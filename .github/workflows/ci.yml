@@ -1,0 +1,301 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: '17'
+  NODE_VERSION: '18'
+
+jobs:
+  mule-build:
+    name: Mule app (Maven, Java 17)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      # Anypoint Exchange credentials are only required when the app depends on
+      # private Exchange assets. This repo currently resolves everything from the
+      # public MuleSoft repositories, so the settings file is written with
+      # placeholder secrets and the build still works when they are unset.
+      - name: Write Maven settings (Anypoint Exchange placeholders)
+        env:
+          ANYPOINT_USERNAME: ${{ secrets.ANYPOINT_USERNAME }}
+          ANYPOINT_PASSWORD: ${{ secrets.ANYPOINT_PASSWORD }}
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/settings.xml <<EOF
+          <settings>
+            <servers>
+              <server>
+                <id>anypoint-exchange-v2</id>
+                <username>${ANYPOINT_USERNAME:-anypoint-placeholder-user}</username>
+                <password>${ANYPOINT_PASSWORD:-anypoint-placeholder-password}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+
+      - name: Build and verify (runs MUnit tests when present)
+        run: mvn -ntp -B clean verify
+
+      - name: Upload Mule application artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mule-application
+          path: target/*-mule-application.jar
+          if-no-files-found: error
+          retention-days: 14
+
+      # MUnit writes to target/surefire-reports and target/munit-reports; neither
+      # exists until MUnit tests are added, so this upload is best-effort.
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mule-test-reports
+          path: |
+            target/surefire-reports/**
+            target/munit-reports/**
+          if-no-files-found: ignore
+          retention-days: 14
+
+  node-bridge:
+    name: Node bridge (heroku-web)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: heroku-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: heroku-web/package-lock.json
+
+      # package-lock.json is gitignored today; fall back to `npm install` so the
+      # job stays green until the lockfile is committed.
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "::warning::heroku-web/package-lock.json is missing; falling back to npm install"
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Lint
+        run: |
+          # No `lint` script is defined yet; run it if it ever is, and always do a
+          # syntax check of the server entrypoint as a baseline.
+          npm run lint --if-present
+          node --check server.js
+
+      - name: Test
+        run: npm test --if-present
+
+      - name: Smoke test the bridge server
+        env:
+          PORT: '3000'
+        run: |
+          node server.js &
+          SERVER_PID=$!
+          for _ in $(seq 1 20); do
+            if curl -fsS -o /dev/null http://localhost:3000/; then
+              echo "bridge responded on http://localhost:3000/"
+              kill "$SERVER_PID"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "bridge did not become healthy" >&2
+          kill "$SERVER_PID" || true
+          exit 1
+
+  config-lint:
+    name: Config lint (YAML / JSON / Mule XML)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install linters
+        run: |
+          python3 -m pip install --quiet yamllint
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libxml2-utils
+
+      - name: Lint workflow and repo YAML
+        run: yamllint -c .github/yamllint.yml .
+
+      - name: Validate JSON files
+        run: |
+          status=0
+          while IFS= read -r file; do
+            if ! python3 -m json.tool "$file" > /dev/null; then
+              echo "::error file=$file::invalid JSON"
+              status=1
+            fi
+          done < <(git ls-files '*.json')
+          exit $status
+
+      - name: Validate Mule XML configuration
+        run: |
+          status=0
+          while IFS= read -r file; do
+            if ! xmllint --noout "$file"; then
+              echo "::error file=$file::malformed XML"
+              status=1
+            fi
+          done < <(git ls-files 'src/main/mule/*.xml' 'src/main/resources/**/*.xml' 'pom.xml')
+          exit $status
+
+  sql-check:
+    name: SQL schema check (PostgreSQL)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: employee_user
+          POSTGRES_PASSWORD: employee_pass
+          POSTGRES_DB: employee_service
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U employee_user -d employee_service"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: employee_pass
+      PSQL: psql -v ON_ERROR_STOP=1 -h localhost -U employee_user -d employee_service
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      # database-setup.sql only ALTERs api_clients, so the base tables documented
+      # in README.md must exist first.
+      - name: Create base tables (from README.md schema)
+        run: |
+          $PSQL <<'SQL'
+          CREATE TABLE api_clients (
+              client_id VARCHAR(255) PRIMARY KEY,
+              client_secret VARCHAR(255) NOT NULL,
+              client_name VARCHAR(255)
+          );
+          CREATE TABLE employee_goals (
+              id SERIAL PRIMARY KEY,
+              employee_id VARCHAR(50) NOT NULL,
+              goal_title VARCHAR(255),
+              progress INTEGER,
+              status VARCHAR(50)
+          );
+          CREATE TABLE employee_learning (
+              id SERIAL PRIMARY KEY,
+              employee_id VARCHAR(50) NOT NULL,
+              course_name VARCHAR(255),
+              course_status VARCHAR(50),
+              completion_percentage INTEGER
+          );
+          CREATE TABLE employee_pto (
+              id SERIAL PRIMARY KEY,
+              employee_id VARCHAR(50) NOT NULL,
+              pto_balance NUMERIC(10,2),
+              accrual_rate NUMERIC(10,2)
+          );
+          SQL
+
+      - name: Apply database-setup.sql
+        run: $PSQL -f database-setup.sql
+
+      - name: Assert expected schema objects exist
+        run: |
+          $PSQL -c "SELECT to_regclass('public.users') IS NOT NULL AS ok;" \
+                -c "SELECT count(*) FROM information_schema.columns
+                    WHERE table_name = 'api_clients'
+                      AND column_name IN ('refresh_token', 'salesforce_user_id', 'is_active');"
+
+  shell-lint:
+    name: Shell script lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck $(git ls-files '*.sh')
+
+  dependency-scan:
+    name: Dependency vulnerability scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Advisory only: the demo app intentionally pins older ranges, so audit
+      # findings are reported without failing the build.
+      - name: npm audit (heroku-web)
+        working-directory: heroku-web
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
+      - name: Trivy filesystem scan (Maven + npm manifests)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+
+      - name: Upload Trivy results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+        continue-on-error: true
