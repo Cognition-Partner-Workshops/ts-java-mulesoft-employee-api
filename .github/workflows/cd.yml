@@ -1,0 +1,216 @@
+name: CD (mocked AWS deploy)
+
+# DEMO PIPELINE — every AWS identifier below is a MOCKED PLACEHOLDER.
+# Nothing in this workflow can reach real infrastructure:
+#   * it only runs on workflow_dispatch (never automatically on push),
+#   * every AWS-touching step is guarded by DRY_RUN, which defaults to `true`
+#     and can only be flipped off when the repository variable
+#     ALLOW_REAL_DEPLOY == 'true' (not set in this demo repo).
+# The app's native target is CloudHub 2.0; that path is kept commented out at
+# the bottom of this file for reference.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [staging, production]
+        default: staging
+      dry_run:
+        description: Run in mocked dry-run mode (no AWS calls)
+        type: boolean
+        default: true
+
+concurrency:
+  group: cd-${{ github.workflow }}-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # ---- MOCKED PLACEHOLDERS (not real AWS resources) ----
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: '123456789012'
+  ECR_REGISTRY: 123456789012.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPOSITORY_MULE: demo-employee-api/mule-app
+  ECR_REPOSITORY_BRIDGE: demo-employee-api/node-bridge
+  ECS_CLUSTER: demo-employee-api
+  ECS_SERVICE_MULE: employee-service-api
+  ECS_SERVICE_BRIDGE: employee-auth-bridge
+  K8S_NAMESPACE: demo-employee-api
+  AWS_OIDC_ROLE_ARN: arn:aws:iam::123456789012:role/demo-employee-api-github-actions
+  # ------------------------------------------------------
+
+jobs:
+  build-images:
+    name: Build & (mock) push images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      dry_run: ${{ steps.guard.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve dry-run guard
+        id: guard
+        env:
+          REQUESTED_DRY_RUN: ${{ inputs.dry_run }}
+          ALLOW_REAL_DEPLOY: ${{ vars.ALLOW_REAL_DEPLOY }}
+        run: |
+          if [ "$REQUESTED_DRY_RUN" = "false" ] && [ "$ALLOW_REAL_DEPLOY" = "true" ]; then
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "dry_run=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::DRY_RUN=true — AWS calls are mocked (set repo variable ALLOW_REAL_DEPLOY=true to enable real deploys)"
+          fi
+
+      - name: Image metadata
+        id: meta
+        run: echo "image_tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Package Mule application
+        run: mvn -ntp -B clean package -DskipTests
+
+      - name: Build Node bridge image
+        run: |
+          docker build \
+            -t "${ECR_REGISTRY}/${ECR_REPOSITORY_BRIDGE}:${{ steps.meta.outputs.image_tag }}" \
+            -f heroku-web/Dockerfile heroku-web
+
+      # The Mule EE runtime image requires a MuleSoft licence and is not
+      # available to this demo, so the "image build" is mocked: we only stage
+      # the built application jar that a licensed runtime image would consume.
+      - name: Stage Mule application (mocked container build)
+        run: |
+          mkdir -p build-context
+          cp target/*-mule-application.jar build-context/
+          echo "MOCK: docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY_MULE}:${{ steps.meta.outputs.image_tag }} ."
+          echo "MOCK: the real image would be FROM a licensed mule-runtime-ee base with this jar in /opt/mule/apps"
+
+      - name: Configure AWS credentials via OIDC (skipped in dry-run)
+        if: steps.guard.outputs.dry_run == 'false'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_OIDC_ROLE_ARN }}  # MOCKED placeholder role ARN
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Push images to Amazon ECR
+        env:
+          DRY_RUN: ${{ steps.guard.outputs.dry_run }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "MOCK: aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
+            echo "MOCK: docker push ${ECR_REGISTRY}/${ECR_REPOSITORY_BRIDGE}:${IMAGE_TAG}"
+            echo "MOCK: docker push ${ECR_REGISTRY}/${ECR_REPOSITORY_MULE}:${IMAGE_TAG}"
+            exit 0
+          fi
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+          docker push "${ECR_REGISTRY}/${ECR_REPOSITORY_BRIDGE}:${IMAGE_TAG}"
+          docker push "${ECR_REGISTRY}/${ECR_REPOSITORY_MULE}:${IMAGE_TAG}"
+
+      - name: Upload deployment artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-${{ steps.meta.outputs.image_tag }}
+          path: build-context/*.jar
+          retention-days: 7
+
+  deploy-staging:
+    name: Deploy to staging
+    needs: build-images
+    if: inputs.environment == 'staging' || inputs.environment == 'production'
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC (skipped in dry-run)
+        if: needs.build-images.outputs.dry_run == 'false'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_OIDC_ROLE_ARN }}  # MOCKED placeholder role ARN
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy ECS services
+        env:
+          DRY_RUN: ${{ needs.build-images.outputs.dry_run }}
+          IMAGE_TAG: ${{ needs.build-images.outputs.image_tag }}
+          ENV_SUFFIX: staging
+        run: .github/scripts/deploy-ecs.sh
+
+  deploy-production:
+    name: Deploy to production
+    needs: [build-images, deploy-staging]
+    if: inputs.environment == 'production'
+    runs-on: ubuntu-latest
+    # The `production` GitHub environment is configured with required reviewers,
+    # so this job waits for manual approval before it runs.
+    environment:
+      name: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC (skipped in dry-run)
+        if: needs.build-images.outputs.dry_run == 'false'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_OIDC_ROLE_ARN }}  # MOCKED placeholder role ARN
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy ECS services
+        env:
+          DRY_RUN: ${{ needs.build-images.outputs.dry_run }}
+          IMAGE_TAG: ${{ needs.build-images.outputs.image_tag }}
+          ENV_SUFFIX: production
+        run: .github/scripts/deploy-ecs.sh
+
+# ---------------------------------------------------------------------------
+# Reference only: CloudHub 2.0 is the app's native deployment target. Enable
+# this job (and the mule-maven-plugin cloudhub2Deployment configuration in
+# pom.xml) once real Anypoint Platform credentials are available.
+#
+# deploy-cloudhub:
+#   name: Deploy to CloudHub 2.0
+#   needs: build-images
+#   runs-on: ubuntu-latest
+#   environment:
+#     name: production
+#   steps:
+#     - uses: actions/checkout@v4
+#     - uses: actions/setup-java@v4
+#       with:
+#         distribution: temurin
+#         java-version: '17'
+#         cache: maven
+#     - name: Deploy with mule-maven-plugin
+#       env:
+#         ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
+#         ANYPOINT_CLIENT_SECRET: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+#       run: |
+#         mvn -ntp -B clean deploy -DmuleDeploy \
+#           -Dcloudhub2.connectedAppClientId="$ANYPOINT_CLIENT_ID" \
+#           -Dcloudhub2.connectedAppClientSecret="$ANYPOINT_CLIENT_SECRET" \
+#           -Dcloudhub2.applicationName=employee-service-api \
+#           -Dcloudhub2.target=Cloudhub-US-East-1
+# ---------------------------------------------------------------------------
