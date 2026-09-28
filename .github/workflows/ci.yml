@@ -1,0 +1,215 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: "17"
+  NODE_VERSION: "18"
+  MAVEN_ARGS: -B -ntp
+
+jobs:
+  lint:
+    name: Lint (Mule XML, JSON fixtures, scripts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install xmllint
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libxml2-utils
+
+      - name: Well-formedness of Mule config, log4j and POM
+        run: xmllint --noout pom.xml src/main/mule/*.xml src/main/resources/log4j2.xml src/test/resources/log4j2-test.xml
+
+      - name: Validate JSON files
+        run: git ls-files -z '*.json' | xargs -0 -n1 sh -c 'jq empty "$0" && echo "ok $0"'
+
+      - name: Syntax-check shell test scripts
+        run: for f in test-*.sh; do bash -n "$f" && echo "ok $f"; done
+
+  mule-build:
+    name: Build (Mule app)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Package Mule application
+        run: mvn $MAVEN_ARGS -DskipTests clean package
+
+      - name: Upload Mule application jar
+        uses: actions/upload-artifact@v7
+        with:
+          name: mule-application
+          path: target/*-mule-application.jar
+          if-no-files-found: error
+
+  mule-test:
+    name: Test (Mule app)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Run Maven verify (MUnit/surefire tests, if any)
+        run: mvn $MAVEN_ARGS verify
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mule-test-reports
+          path: |
+            target/surefire-reports/
+            target/munit-reports/
+          if-no-files-found: ignore
+
+  heroku-web:
+    name: heroku-web (install, lint, test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: heroku-web
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: heroku-web/package.json
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Lint (syntax check)
+        run: node --check server.js
+
+      - name: Smoke test (serve login and register pages)
+        run: |
+          PORT=3000 node server.js > server.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:3000/ && break
+            sleep 1
+          done
+          for page in / /register.html; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:3000${page}")
+            echo "GET ${page} -> ${code}"
+            [ "$code" = "200" ] || { cat server.log; exit 1; }
+          done
+
+  database:
+    name: Test (database schema)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: employee_user
+          POSTGRES_PASSWORD: employee_pass
+          POSTGRES_DB: employee_service
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U employee_user -d employee_service"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: employee_user
+      PGPASSWORD: employee_pass
+      PGDATABASE: employee_service
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Extract base tables and sample data from README
+        run: |
+          awk '/^## .*Database Setup/{f=1} /^## .*Security/{f=0} f' README.md \
+            | awk '/^```sql/{c=1;next} /^```/{c=0} c' > base-schema.sql
+          cat base-schema.sql
+
+      - name: Apply base schema
+        run: psql -v ON_ERROR_STOP=1 -f base-schema.sql
+
+      - name: Apply database-setup.sql
+        run: psql -v ON_ERROR_STOP=1 -f database-setup.sql
+
+      - name: Verify schema
+        run: |
+          psql -v ON_ERROR_STOP=1 -c '\d users' -c '\d api_clients'
+          psql -v ON_ERROR_STOP=1 -tAc "SELECT client_id FROM api_clients WHERE client_id = 'demo_client'" | grep -qx demo_client
+
+  sonarqube:
+    name: SonarQube scan
+    runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL || secrets.SONAR_HOST_URL }}
+    steps:
+      - name: Skip notice
+        if: env.SONAR_TOKEN == ''
+        run: echo "::notice::SONAR_TOKEN secret is not configured; skipping SonarQube scan."
+
+      - uses: actions/checkout@v7
+        if: env.SONAR_TOKEN != ''
+        with:
+          fetch-depth: 0
+
+      - name: SonarQube scan
+        if: env.SONAR_TOKEN != ''
+        uses: SonarSource/sonarqube-scan-action@v8
+        with:
+          args: >
+            -Dsonar.projectKey=${{ github.event.repository.name }}
+            -Dsonar.projectName=${{ github.event.repository.name }}
+            -Dsonar.sources=src/main,heroku-web
+            -Dsonar.exclusions=heroku-web/node_modules/**
+
+  package:
+    name: Package release bundle (CD)
+    if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: [lint, mule-build, mule-test, heroku-web, database]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download Mule application jar
+        uses: actions/download-artifact@v8
+        with:
+          name: mule-application
+          path: dist/mule
+
+      - name: Pack heroku-web
+        run: |
+          mkdir -p dist/heroku-web
+          npm pack ./heroku-web --pack-destination dist/heroku-web
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: employee-service-api-${{ github.sha }}
+          path: dist/
+          retention-days: 30
+          if-no-files-found: error
