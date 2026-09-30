@@ -1,0 +1,88 @@
+# https://docs.devin.ai/onboard-devin/environment-yaml
+# MuleSoft (Mule 4) Employee Service API: Java 17 + Maven 3.9.x build; Node.js (Express) heroku-web bridge; PostgreSQL 14.
+# Commands run from the repo root.
+
+# One-time setup (e.g., install system tools, global CLIs).
+initialize: |
+  sudo apt-get update -qq
+  sudo apt-get install -y -qq openjdk-17-jdk postgresql postgresql-contrib
+  # Maven 3.6 (apt) is too old for mule-maven-plugin; install 3.9.9 to /opt/maven.
+  MV=3.9.9
+  curl -fsSL -o /tmp/maven.tar.gz "https://archive.apache.org/dist/maven/maven-3/${MV}/binaries/apache-maven-${MV}-bin.tar.gz"
+  sudo tar -xzf /tmp/maven.tar.gz -C /opt
+  sudo ln -sfn /opt/apache-maven-${MV} /opt/maven
+  grep -q '/opt/maven/bin' $HOME/.bashrc || echo 'export PATH=/opt/maven/bin:$PATH' >> $HOME/.bashrc
+  # Warm the Maven/Mule dependency cache once here (repository.mulesoft.org is slow; ~160MB cold),
+  # with a timeout + retries, so maintenance never has to do the long download.
+  # Use `clean package` so maven-clean-plugin gets cached for the offline clean below, and -U plus
+  # a cached-failure purge between attempts: Maven negative-caches transient repo errors
+  # ("was not found in ... during a previous attempt"), which otherwise makes retries no-ops.
+  export PATH=/opt/maven/bin:$PATH
+  # Maven Central (repo1.maven.org) rate-limits the build egress (HTTP 429). Mirror it to the
+  # Google-hosted copy unless another blueprint already wrote a settings.xml (it carries the same mirror).
+  mkdir -p "$HOME/.m2"
+  if [ ! -f "$HOME/.m2/settings.xml" ]; then
+    cat > "$HOME/.m2/settings.xml" <<'EOF'
+  <settings>
+    <mirrors>
+      <mirror>
+        <id>google-maven-central</id>
+        <mirrorOf>central</mirrorOf>
+        <url>https://maven-central.storage-download.googleapis.com/maven2</url>
+      </mirror>
+    </mirrors>
+  </settings>
+  EOF
+  fi
+  # Bounded: 2 x 10 min. A stuck download must fail fast rather than stall the whole org snapshot build.
+  warm_ok=0
+  for i in 1 2; do
+    timeout 600 mvn -B -ntp -U -DskipTests clean package && { warm_ok=1; break; }
+    echo "maven warm attempt $i failed; purging cached resolution failures and retrying"
+    find "$HOME/.m2/repository" \( -name '*.lastUpdated' -o -name '_remote.repositories' \) -delete
+    sleep 15
+  done
+  [ "$warm_ok" = 1 ]
+  mvn -B -ntp -o clean -q
+
+# Install project dependencies (runs during builds, surfaced to agent at session start).
+maintenance: |
+  export PATH=/opt/maven/bin:$PATH
+  sudo pg_ctlcluster 14 main start || true
+  # Create role + database (idempotent). Run psql from /tmp: the postgres user cannot read the repo cwd.
+  (cd /tmp && sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='employee_user'" | grep -q 1 || sudo -u postgres psql -c "CREATE ROLE employee_user LOGIN PASSWORD 'employee_pass';")
+  (cd /tmp && sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='employee_service'" | grep -q 1 || sudo -u postgres psql -c "CREATE DATABASE employee_service OWNER employee_user;")
+  # Bootstrap schema once (base tables from README + repo database-setup.sql + sample data).
+  export PGPASSWORD=employee_pass
+  if ! psql -h localhost -U employee_user -d employee_service -tc "SELECT to_regclass('public.users')" | grep -q users; then
+    psql -h localhost -U employee_user -d employee_service -c "CREATE TABLE IF NOT EXISTS api_clients (client_id VARCHAR(255) PRIMARY KEY, client_secret VARCHAR(255) NOT NULL, client_name VARCHAR(255), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS employee_goals (id SERIAL PRIMARY KEY, employee_id VARCHAR(50) NOT NULL, goal_title VARCHAR(255) NOT NULL, goal_description TEXT, target_date DATE, progress INTEGER DEFAULT 0, status VARCHAR(50), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS employee_learning (id SERIAL PRIMARY KEY, employee_id VARCHAR(50) NOT NULL, course_name VARCHAR(255) NOT NULL, course_status VARCHAR(50), completion_percentage INTEGER DEFAULT 0, due_date DATE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS employee_pto (id SERIAL PRIMARY KEY, employee_id VARCHAR(50) NOT NULL, pto_balance DECIMAL(10,2) DEFAULT 0, accrual_rate DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
+    psql -h localhost -U employee_user -d employee_service -f database-setup.sql
+    psql -h localhost -U employee_user -d employee_service -c "INSERT INTO api_clients (client_id, client_secret, client_name) VALUES ('demo_client','demo_secret','Demo Application') ON CONFLICT DO NOTHING; INSERT INTO employee_goals (employee_id, goal_title, progress, status) VALUES ('EMP001','Complete Q4 Sales Target',75,'In Progress'); INSERT INTO employee_learning (employee_id, course_name, course_status, completion_percentage) VALUES ('EMP001','Advanced Sales Techniques','In Progress',60); INSERT INTO employee_pto (employee_id, pto_balance, accrual_rate) VALUES ('EMP001',120.00,8.00);"
+  fi
+  # Node bridge dependencies. package.json declares engines node 18.x, which is advisory only:
+  # express/axios install and run fine on the org default Node, so the EBADENGINE warning is expected.
+  (cd heroku-web && npm install --no-audit --no-fund)
+  # Build the Mule application archive (produces target/*-mule-application.jar).
+  # The cache is warmed in initialize, so build offline (seconds); fall back online if a dep is new.
+  # Both runs are capped at 10 min so a slow repository.mulesoft.org can't stall the snapshot build.
+  timeout 600 mvn -B -ntp -o clean package -DskipTests || timeout 600 mvn -B -ntp clean package -DskipTests
+
+knowledge:
+  - name: build (Mule app)
+    contents: |
+      Requires Maven 3.8+ (use /opt/maven/bin/mvn = 3.9.9) and Java 17.
+      Build/package: mvn clean package -> target/employee-service-api-1.0.0-SNAPSHOT-mule-application.jar
+  - name: run (Node heroku-web bridge)
+    contents: |
+      cd heroku-web && PORT=3000 npm start -> http://localhost:3000 (login UI).
+      Verify: curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/  (expect 200).
+      Env: PORT (default 3000), API_BASE_URL (Mule API base URL the bridge proxies /auth/* to).
+  - name: database
+    contents: |
+      PostgreSQL 14 on localhost:5432; db=employee_service user=employee_user pass=employee_pass.
+      Schema = README base tables + database-setup.sql; sample client demo_client/demo_secret, employee EMP001.
+  - name: running the Mule runtime (BLOCKED)
+    contents: |
+      The Mule app (minMuleVersion 4.9.7) only BUILDS here. Running it needs the Mule 4.9
+      Enterprise runtime / Anypoint Studio, which requires a MuleSoft license/Anypoint
+      credentials not available in this environment. Maven build is the runnable deliverable.
