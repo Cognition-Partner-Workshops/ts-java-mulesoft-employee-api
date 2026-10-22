@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Maven settings used by CI only.
+
+  The Mule application declares the Anypoint Exchange repository in pom.xml.
+  Exchange requires MuleSoft credentials, which are NOT available in this demo
+  repository. The server entries below therefore carry MOCK placeholder values
+  sourced from (optional) repository secrets:
+
+    ANYPOINT_USERNAME / ANYPOINT_PASSWORD  -> real credentials, if ever configured
+    default                                -> "mock-anypoint-user" / "mock-anypoint-password"
+
+  With mock credentials, artifacts hosted only on Exchange cannot be resolved.
+  Everything this project actually depends on is published to the PUBLIC
+  MuleSoft releases repository and Maven Central, so the build works anyway.
+  The CI job additionally tolerates a resolution failure of private artifacts
+  (see .github/workflows/ci.yml, "Package Mule application" step).
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+  <servers>
+    <server>
+      <id>anypoint-exchange-v2</id>
+      <username>${env.ANYPOINT_USERNAME}</username>
+      <password>${env.ANYPOINT_PASSWORD}</password>
+    </server>
+    <server>
+      <id>mulesoft-releases</id>
+      <username>${env.ANYPOINT_USERNAME}</username>
+      <password>${env.ANYPOINT_PASSWORD}</password>
+    </server>
+  </servers>
+
+</settings>

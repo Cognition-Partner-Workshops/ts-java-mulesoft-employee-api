@@ -1,0 +1,192 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: CI only needs to read the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: "17"
+  NODE_VERSION: "18"
+
+jobs:
+  mule-build:
+    name: Mule app (Maven build + MUnit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Cache ~/.m2
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      # Anypoint Exchange credentials are NOT available in this demo repo.
+      # .github/ci/settings.xml wires the Exchange/MuleSoft servers to the two
+      # env vars below; when the secrets are unset they fall back to obvious
+      # mock values, which is enough for the public MuleSoft + Central artifacts
+      # this project actually uses.
+      - name: Build settings
+        id: settings
+        env:
+          ANYPOINT_USERNAME: ${{ secrets.ANYPOINT_USERNAME }}
+        run: |
+          if [ -n "$ANYPOINT_USERNAME" ]; then
+            echo "mock=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "mock=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Mock Anypoint credentials::ANYPOINT_USERNAME is not set; building with placeholder Exchange credentials."
+          fi
+
+      - name: Package Mule application
+        id: package
+        # Tolerated on purpose: without real Anypoint credentials, any artifact
+        # that lives only in a private Exchange organisation cannot be resolved.
+        # The failure is surfaced as a warning below instead of breaking the run,
+        # and the build is re-run in fail-fast mode as soon as real credentials
+        # are configured (steps.settings.outputs.mock == 'false').
+        continue-on-error: ${{ steps.settings.outputs.mock == 'true' }}
+        env:
+          ANYPOINT_USERNAME: ${{ secrets.ANYPOINT_USERNAME || 'mock-anypoint-user' }}
+          ANYPOINT_PASSWORD: ${{ secrets.ANYPOINT_PASSWORD || 'mock-anypoint-password' }}
+        run: mvn -B -ntp -s .github/ci/settings.xml clean package
+
+      - name: Run MUnit tests
+        id: munit
+        # The pom currently declares no munit-maven-plugin and src/test holds no
+        # MUnit suites, so this is a no-op today and becomes a real test run the
+        # moment suites are added under src/test/munit.
+        if: steps.package.outcome == 'success'
+        continue-on-error: ${{ steps.settings.outputs.mock == 'true' }}
+        env:
+          ANYPOINT_USERNAME: ${{ secrets.ANYPOINT_USERNAME || 'mock-anypoint-user' }}
+          ANYPOINT_PASSWORD: ${{ secrets.ANYPOINT_PASSWORD || 'mock-anypoint-password' }}
+        run: mvn -B -ntp -s .github/ci/settings.xml test
+
+      - name: Fall back to offline validation
+        if: steps.package.outcome == 'failure'
+        run: |
+          echo "::warning title=Mule build degraded::mvn package failed with mock Anypoint credentials (likely unresolvable private Exchange dependencies). Validating the project descriptors offline instead."
+          python3 -c "import xml.dom.minidom,sys; [xml.dom.minidom.parse(f) for f in ['pom.xml','src/main/mule/employee-services-api.xml']]"
+          python3 -c "import json; json.load(open('mule-artifact.json'))"
+
+      - name: Upload Mule application archive
+        if: steps.package.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mule-application
+          path: target/*-mule-application.jar
+          if-no-files-found: error
+          retention-days: 7
+
+  node-bridge:
+    name: Node bridge (heroku-web)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: heroku-web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: heroku-web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Audit dependencies (advisory only)
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+
+  database-schema:
+    name: PostgreSQL schema validation
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: employee_user
+          POSTGRES_PASSWORD: employee_pass
+          POSTGRES_DB: employee_service
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U employee_user -d employee_service"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: employee_user
+      PGPASSWORD: employee_pass
+      PGDATABASE: employee_service
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply base schema (tables documented in README)
+        run: psql -v ON_ERROR_STOP=1 -f .github/ci/schema-bootstrap.sql
+
+      - name: Apply database-setup.sql
+        run: psql -v ON_ERROR_STOP=1 -f database-setup.sql
+
+      - name: Verify resulting schema
+        run: psql -v ON_ERROR_STOP=1 -f .github/ci/schema-verify.sql
+
+  shell-scripts:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run shellcheck on test scripts
+        run: shellcheck --severity=warning test-*.sh
+
+  workflow-lint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate workflow YAML
+        run: |
+          python3 -c "import sys,yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" .github/workflows/*.yml .github/dependabot.yml
+
+      - name: Run actionlint
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint -color

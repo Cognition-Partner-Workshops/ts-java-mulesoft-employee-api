@@ -1,0 +1,213 @@
+name: CD
+
+# DEMO PIPELINE — every AWS identifier below is a MOCK placeholder.
+# Real values are expected to come from GitHub Actions variables/secrets
+# (see docs/CICD.md). While the mock defaults are in effect, all steps that
+# would talk to AWS (OIDC assume-role, ECR push, ECS/EKS rollout) are guarded
+# so they no-op or run in dry-run mode.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        required: true
+        default: staging
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # ---- MOCK AWS DEFAULTS (override with repository/organization variables) ----
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID || '123456789012' }}
+  MULE_ECR_REPOSITORY: ${{ vars.MULE_ECR_REPOSITORY || 'demo/employee-service-api-mule' }}
+  NODE_ECR_REPOSITORY: ${{ vars.NODE_ECR_REPOSITORY || 'demo/employee-service-auth-ui' }}
+
+jobs:
+  build-images:
+    name: Build & push images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for GitHub OIDC role assumption (no long-lived keys)
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      mock_mode: ${{ steps.guard.outputs.mock_mode }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Mock-mode guard: everything that touches a real AWS account is skipped
+      # (or dry-run) unless a non-placeholder account ID AND an OIDC role ARN
+      # have been configured.
+      - name: Detect mock credentials
+        id: guard
+        env:
+          OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+        run: |
+          mock=true
+          if [ -n "$OIDC_ROLE_ARN" ] && [ "$AWS_ACCOUNT_ID" != "123456789012" ]; then
+            mock=false
+          fi
+          echo "mock_mode=$mock" >> "$GITHUB_OUTPUT"
+          if [ "$mock" = "true" ]; then
+            echo "::notice title=Mock AWS mode::Using placeholder AWS identifiers; images are built but never pushed and deployments run dry-run."
+          fi
+
+      - name: Compute image metadata
+        id: meta
+        run: echo "image_tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache ~/.m2
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Package Mule application
+        env:
+          ANYPOINT_USERNAME: ${{ secrets.ANYPOINT_USERNAME || 'mock-anypoint-user' }}
+          ANYPOINT_PASSWORD: ${{ secrets.ANYPOINT_PASSWORD || 'mock-anypoint-password' }}
+        run: mvn -B -ntp -s .github/ci/settings.xml clean package -DskipTests
+
+      - name: Set up Node 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: npm
+          cache-dependency-path: heroku-web/package-lock.json
+
+      - name: Install Node dependencies
+        working-directory: heroku-web
+        run: npm ci
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Real credentials only: assumes a short-lived role via GitHub OIDC.
+      - name: Configure AWS credentials (OIDC)
+        if: steps.guard.outputs.mock_mode == 'false'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-cd-${{ github.run_id }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        if: steps.guard.outputs.mock_mode == 'false'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Mule image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.mule
+          # Push is guarded: under mock credentials the image is built and
+          # loaded locally only, never pushed to ECR.
+          push: ${{ steps.guard.outputs.mock_mode == 'false' }}
+          load: ${{ steps.guard.outputs.mock_mode == 'true' }}
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.MULE_ECR_REPOSITORY }}:${{ steps.meta.outputs.image_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Node bridge image
+        uses: docker/build-push-action@v6
+        with:
+          context: heroku-web
+          file: heroku-web/Dockerfile
+          push: ${{ steps.guard.outputs.mock_mode == 'false' }}
+          load: ${{ steps.guard.outputs.mock_mode == 'true' }}
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.NODE_ECR_REPOSITORY }}:${{ steps.meta.outputs.image_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-staging:
+    name: Deploy to staging
+    needs: build-images
+    # Skip staging when a workflow_dispatch explicitly targets production.
+    if: github.event_name != 'workflow_dispatch' || inputs.environment == 'staging'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: demo-staging # GitHub Environment; mocked name, no protection rules needed
+    env:
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER_STAGING || 'demo-staging-cluster' }}
+      ECS_SERVICE_MULE: ${{ vars.ECS_SERVICE_MULE_STAGING || 'demo-staging-employee-api' }}
+      ECS_SERVICE_NODE: ${{ vars.ECS_SERVICE_NODE_STAGING || 'demo-staging-auth-ui' }}
+      EKS_NAMESPACE: ${{ vars.EKS_NAMESPACE_STAGING || 'demo-staging' }}
+      MOCK_MODE: ${{ needs.build-images.outputs.mock_mode }}
+      IMAGE_TAG: ${{ needs.build-images.outputs.image_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        if: needs.build-images.outputs.mock_mode == 'false'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-deploy-staging-${{ github.run_id }}
+
+      - name: Deploy
+        run: .github/scripts/deploy.sh
+
+  deploy-production:
+    name: Deploy to production
+    needs: [build-images, deploy-staging]
+    # Runs after staging on push; a workflow_dispatch targeting production
+    # skips staging, hence always() plus an explicit failure check.
+    if: |
+      always() && needs.build-images.result == 'success' &&
+      (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      # Manual approval gate: protect the "demo-prod" GitHub Environment with
+      # required reviewers so this job waits for a human before running.
+      name: demo-prod
+    env:
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER_PROD || 'demo-prod-cluster' }}
+      ECS_SERVICE_MULE: ${{ vars.ECS_SERVICE_MULE_PROD || 'demo-prod-employee-api' }}
+      ECS_SERVICE_NODE: ${{ vars.ECS_SERVICE_NODE_PROD || 'demo-prod-auth-ui' }}
+      EKS_NAMESPACE: ${{ vars.EKS_NAMESPACE_PROD || 'demo-prod' }}
+      MOCK_MODE: ${{ needs.build-images.outputs.mock_mode }}
+      IMAGE_TAG: ${{ needs.build-images.outputs.image_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        if: needs.build-images.outputs.mock_mode == 'false'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-deploy-prod-${{ github.run_id }}
+
+      - name: Deploy
+        run: .github/scripts/deploy.sh

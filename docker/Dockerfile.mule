@@ -1,0 +1,17 @@
+# Container image for the Mule application.
+#
+# NOTE (demo): the Mule 4.9 Enterprise runtime is licensed and not publicly
+# pullable, so this image only stages the packaged application archive on a
+# plain JDK 17 base. Swap the base image for your licensed Mule runtime image
+# (e.g. an internal ECR copy of mulesoft/mule-runtime) and drop the CMD below
+# before using this for a real deployment.
+FROM eclipse-temurin:17-jre-jammy
+
+WORKDIR /opt/mule/apps
+
+COPY target/*-mule-application.jar ./employee-service-api.jar
+
+ENV MULE_APP=/opt/mule/apps/employee-service-api.jar
+
+# Placeholder entrypoint: the licensed runtime image provides the real one.
+CMD ["sh", "-c", "echo 'Mule application staged at $MULE_APP; replace this base image with the licensed Mule runtime.' && sleep infinity"]
