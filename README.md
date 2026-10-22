@@ -21,7 +21,7 @@ The Employee Service API is a **MuleSoft Mule 4** application that provides a co
 
 ### Technology Stack
 
-- **Runtime**: Mule Runtime 4.9.6+ with Java 17
+- **Runtime**: Mule Runtime 4.9.6+ with Java 21
 - **Build Tool**: Maven
 - **Database**: PostgreSQL
 - **Authentication**: OAuth2 Client Credentials
@@ -134,7 +134,7 @@ GET /console/
 
 ### Prerequisites
 
-- Java 17 or higher
+- Java 21 or higher
 - Maven 3.8+
 - PostgreSQL database
 - MuleSoft Anypoint Platform account (for CloudHub deployment)
