@@ -63,3 +63,4 @@ velocity.log
 
 # Personal configuration
 local.properties
+node_modules/

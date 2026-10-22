@@ -298,6 +298,22 @@ Run MUnit tests (if configured):
 mvn test
 ```
 
+## ⚙️ CI/CD
+
+GitHub Actions workflows live in `.github/workflows/`:
+
+- **`ci.yml`** — Maven build/verify of the Mule app on Temurin JDK 17, Node 18 checks for the
+  `heroku-web` bridge, YAML/JSON/Mule-XML lint, a PostgreSQL service container that applies
+  `database-setup.sql`, `shellcheck` for the `test-*.sh` scripts, and dependency vulnerability
+  scanning (`npm audit` + Trivy).
+- **`cd.yml`** — Mocked AWS deployment demo (ECR + ECS, OIDC role assumption, `staging` →
+  `production` environments). Manual dispatch only and dry-run by default; every AWS identifier
+  is a placeholder. A CloudHub 2.0 job is kept commented out as the native deployment path.
+- **`dependabot.yml`** — weekly maven / npm / github-actions updates.
+
+See [`.github/README.md`](.github/README.md) for the full job list, required secrets, repository
+variables, and the mocked placeholder values.
+
 ## 📊 Error Handling
 
 The application implements comprehensive error handling:

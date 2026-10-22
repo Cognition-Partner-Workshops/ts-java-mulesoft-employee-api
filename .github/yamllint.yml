@@ -1,0 +1,17 @@
+extends: default
+
+ignore: |
+  node_modules/
+  heroku-web/node_modules/
+  target/
+  .mule/
+
+rules:
+  document-start: disable
+  line-length:
+    max: 140
+    allow-non-breakable-words: true
+  truthy:
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1
