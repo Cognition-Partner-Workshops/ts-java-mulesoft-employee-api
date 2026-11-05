@@ -240,7 +240,7 @@ public class Api {
             Object value = switch (endpoint) {
                 case "learning-status" -> rows;
                 case "next-pay-date" -> rows.get(0).get("next_pay_date") == null ? null : rows.get(0).get("next_pay_date").toString();
-                default -> rows.get(0).get("pto_balance") == null ? null : ((BigDecimal) rows.get(0).get("pto_balance")).doubleValue();
+                default -> rows.get(0).get("pto_balance") == null ? null : ((BigDecimal) rows.get(0).get("pto_balance")).setScale(0, java.math.RoundingMode.HALF_UP).longValue();
             };
             String field = switch (endpoint) { case "learning-status" -> "learningStatus"; case "next-pay-date" -> "nextPayDate"; default -> "ptoBalance"; };
             return new Reply(200, obj("employeeId", id, "status", "success", field, value));
