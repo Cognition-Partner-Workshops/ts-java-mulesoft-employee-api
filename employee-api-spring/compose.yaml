@@ -1,0 +1,33 @@
+name: mc1105-employee-spring
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: employee_service
+      POSTGRES_USER: fixture
+      POSTGRES_PASSWORD: fixture_only
+    volumes:
+      - ../legacy-standin/seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U fixture -d employee_service']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  api:
+    build:
+      context: ..
+      dockerfile: employee-api-spring/Dockerfile
+    environment:
+      DATABASE_URL: jdbc:postgresql://db:5432/employee_service
+      DB_USER: fixture
+      DB_PASSWORD: fixture_only
+    ports:
+      - '127.0.0.1:8083:8080'
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:8080/health >/dev/null']
+      interval: 2s
+      timeout: 3s
+      retries: 60

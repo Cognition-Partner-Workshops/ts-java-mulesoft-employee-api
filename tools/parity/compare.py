@@ -45,10 +45,10 @@ def normalized(response):
     return response[0], json.dumps(response[1], sort_keys=True, separators=(',', ':'), ensure_ascii=False)
 
 
-def compare(old, new, employees, credentials, verbose=False):
+def compare(old, new, employees, credentials, verbose=False, endpoints=None):
     rows = []
     for emp in employees:
-        for endpoint in ENDPOINTS:
+        for endpoint in ENDPOINTS if endpoints is None else [e for e in ENDPOINTS if e in endpoints]:
             path = '/api/employee/' + urllib.parse.quote(emp, safe='') + '/' + endpoint
             method = 'POST' if endpoint == 'pto/schedule' else 'GET'
             data = {'startDate': '2024-02-05', 'endDate': '2024-02-09'} if method == 'POST' else None
@@ -75,10 +75,11 @@ def main():
     parser.add_argument('--employees', nargs='+', default=EMPLOYEES)
     parser.add_argument('--output', type=Path, default=Path('parity-report.md'))
     parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--endpoints', nargs='+', choices=ENDPOINTS, default=ENDPOINTS)
     args = parser.parse_args()
     credentials = [(os.getenv(prefix + '_CLIENT_ID', 'demo_client'),
                     os.getenv(prefix + '_CLIENT_SECRET', 'demo_secret')) for prefix in ('OLD', 'NEW')]
-    rows = compare(args.old, args.new, args.employees, credentials, args.verbose)
+    rows = compare(args.old, args.new, args.employees, credentials, args.verbose, args.endpoints)
     matches = sum(r[4] for r in rows)
     report = ['| Employee | Endpoint | Old HTTP | New HTTP | Result |',
               '| --- | --- | --- | --- | --- |']
