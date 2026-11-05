@@ -249,7 +249,7 @@ class Handler(BaseHTTPRequestHandler):
             except psycopg.Error:
                 return 503, dict(status='unhealthy', database='disconnected', timestamp=now().isoformat() + 'Z')
         if path.startswith('/web/'):
-            name = 'login' if path in ('/web/', '/web/login') else 'register' if path == '/web/register' else None
+            name = 'login' if path in ('/web/', '/web/login', '/web/login.html') else 'register' if path in ('/web/register', '/web/register.html') else None
             return (200, Path('/app/web/' + name + '.html').read_text()) if name else (404, {'error': 'Page not found'})
         if path == '/oauth/token':
             return oauth(data, self.headers.get('Authorization', '')) if self.command == 'POST' else (405, {'message': 'Method not allowed'})

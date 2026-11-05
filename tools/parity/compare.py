@@ -61,7 +61,8 @@ def compare(old, new, employees, credentials, verbose=False):
                     results.append(request(base, path, method, data, access))
                 except (OSError, ValueError, RuntimeError) as exc:
                     results.append((0, {'transportError': type(exc).__name__}))
-            matched = all(r[0] != 0 for r in results) and normalized(results[0]) == normalized(results[1])
+            # A 401 on an employee call means the token check failed, so the row proves nothing.
+            matched = all(r[0] not in (0, 401) for r in results) and normalized(results[0]) == normalized(results[1])
             rows.append((emp, endpoint, results[0][0], results[1][0], matched))
             if verbose:
                 print(f'{method} {path}: {results[0][0]} {json.dumps(results[0][1], sort_keys=True)}')
