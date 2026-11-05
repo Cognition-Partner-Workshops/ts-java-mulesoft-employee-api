@@ -57,7 +57,13 @@ public class Api {
         return new Reply(status, obj("error", code, "error_description", description));
     }
     static boolean present(Object value) {
-        return value != null && !value.equals("") && !value.equals(false) && !value.equals(0);
+        if (value == null || Boolean.FALSE.equals(value)) return false;
+        if (value instanceof BigDecimal decimal) return decimal.signum() != 0;
+        if (value instanceof Number number) return number.doubleValue() != 0;
+        if (value instanceof String text) return !text.isEmpty();
+        if (value instanceof List<?> list) return !list.isEmpty();
+        if (value instanceof Map<?, ?> map) return !map.isEmpty();
+        return true;
     }
     static String hash(Object password) {
         return Base64.getEncoder().encodeToString((password.toString() + "salt").getBytes(StandardCharsets.UTF_8));

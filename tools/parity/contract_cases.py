@@ -101,6 +101,10 @@ def cases(base, client, secret):
     add('register created', '/auth/register', 'POST', user)
     add('register duplicate', '/auth/register', 'POST', user)
     add('login missing', '/auth/login', 'POST', {})
+    for label, value in [('zero int', 0), ('zero float', 0.0), ('empty string', ''),
+                         ('empty list', []), ('empty map', {}), ('false', False), ('null', None)]:
+        add('login clientId ' + label, '/auth/login', 'POST',
+            {'username': username, 'password': 'synthetic', 'clientId': value})
     login = {'username': username, 'password': 'bad', 'clientId': username, 'userId': username}
     add('login wrong password', '/auth/login', 'POST', login)
     login['password'] = 'synthetic'

@@ -68,6 +68,21 @@ class ContractTest {
         return call("/api/employee/" + id + "/" + endpoint, "GET", null, access == null ? null : "Bearer " + access, "application/json");
     }
 
+    @Test void requiredFieldTruthiness() throws Exception {
+        for (Object absent : java.util.Arrays.asList(null, false, 0, 0L, 0.0, -0.0,
+                new java.math.BigDecimal("0.00"), "", java.util.List.of(), Map.of())) {
+            assertFalse(Api.present(absent), "Expected absent: " + absent);
+            Result result = call("/auth/login", "POST",
+                Api.obj("username", "synthetic", "password", "synthetic", "clientId", absent));
+            assertEquals(400, result.status());
+            assertEquals(JSON.readTree("{\"error\":\"invalid_request\",\"error_description\":\"Missing required fields: username, password, and clientId\"}"), result.body());
+        }
+        for (Object present : java.util.List.of(true, 1, -1L, 0.5,
+                new java.math.BigDecimal("1e-1000"), " ", "0", java.util.List.of(false), Map.of("value", false))) {
+            assertTrue(Api.present(present), "Expected present: " + present);
+        }
+    }
+
     @Test void oauthAndDatabaseValidation() throws Exception {
         assertEquals(401, call("/oauth/token", "POST", Map.of()).status());
         String first = access(), second = access();
