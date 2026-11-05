@@ -30,6 +30,10 @@ Run these from the repository root against disposable seeded stacks. The scripts
 
 Baseline security quirks are intentional: only goals/learning-status validate bearer tokens; tokens and passwords retain the fixture format/encoding, not production-grade password hashing; schedule ignores startDate and changes next_pay_date; disconnect only sets is_active. Do not use this parity fixture as a hardened production auth service.
 
+## Known risk, fix on both paths after cut-over
+
+`/oauth/token` POSTs the token to a caller-supplied `callback_url` with only a non-empty check, creating an SSRF risk. Mule (`src/main/mule/employee-services-api.xml:74,146-165`) and the stand-in (`legacy-standin/app.py:49-55,78-82`) do the same; Spring preserves this behavior for parity. After cut-over, apply an allowlist of registered callback hosts to both paths.
+
 ## Known non-parity / boundaries
 
 * JSON formatting/key order, HTTP server identification, Date, framing and connection-management headers differ. Comparators check normalized JSON, status and (in contract_cases) Content-Type plus CORS, not raw transport bytes.
