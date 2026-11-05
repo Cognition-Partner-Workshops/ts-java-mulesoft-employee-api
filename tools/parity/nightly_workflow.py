@@ -85,7 +85,9 @@ Worker notes: {work.get('notes', '')}
    /api/employee/EMP001/goals with that token -> 200; issue a second token, the first must now give 401
    invalid_token; no Authorization -> 401 missing_token; also run
    `python3 tools/parity/contract_cases.py http://localhost:8082 http://localhost:8083` and record its summary line.
-   token_flow_ok = all of these behave identically on both sides.
+   token_flow_ok = the token steps above plus the token/auth rows of contract_cases.py (goals/learning-status token
+   cases, oauth, login, refresh) behave identically on both sides. List any other contract_cases mismatch in evidence
+   without failing token_flow_ok: it belongs to the endpoint worker that owns it.
 3. For each MISMATCH row, re-issue that request against both sides and classify: CONFIRMED_DRIFT (tables identical,
    token flow ok, difference reproduces — quote the differing field), FIXTURE_STATE (seed/table rows differ),
    TOKEN_FLOW (difference caused by token issuance/validation), NOT_REPRODUCED. If there are no mismatches return [].
