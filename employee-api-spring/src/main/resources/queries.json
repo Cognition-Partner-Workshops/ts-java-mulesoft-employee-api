@@ -1,0 +1,20 @@
+{
+  "Validate Client Credentials": "\nSELECT client_id, client_secret, user_id FROM api_clients\nWHERE client_id = :clientId AND client_secret = :clientSecret\n",
+  "Store Token in DB": "\nINSERT INTO api_clients (client_id, client_secret, access_token, expires_at, callback_url)\nVALUES (:clientId, :clientSecret, :accessToken, :expiresAt, :callbackUrl)\nON CONFLICT (client_id) DO UPDATE SET\n  access_token = :accessToken,\n  expires_at = :expiresAt,\n  callback_url = :callbackUrl\n\t\t\t\t\t\t",
+  "Retrieve Token from DB": "\nSELECT access_token, expires_at, client_id FROM api_clients\nWHERE access_token = :token AND expires_at > :currentTime\n\t\t\t\t\t\t",
+  "Test DB Connection": "SELECT 1 as health_check",
+  "Check User Exists": "\nSELECT username, email FROM users\nWHERE username = :username OR email = :email\n\t\t\t\t",
+  "Insert New User": "\nINSERT INTO users (username, email, first_name, last_name, password_hash)\nVALUES (:username, :email, :firstName, :lastName, :passwordHash)\n\t\t\t\t\t\t",
+  "Validate User Credentials": "\nSELECT user_id, username, email, first_name, last_name FROM users\nWHERE username = :username AND password_hash = :passwordHash AND is_active = true\n\t\t\t\t",
+  "Check Existing API Client": "\nSELECT client_id, client_secret FROM api_clients WHERE user_id = :userId\n\t\t\t\t\t\t",
+  "Create API Client": "\nINSERT INTO api_clients (client_id, client_secret, user_id, salesforce_user_id, is_active)\nVALUES (:clientId, :clientSecret, :userId, :salesforceUserId, true)\n\t\t\t\t\t\t\t\t",
+  "Update Token in DB": "\nUPDATE api_clients SET \n  access_token = :accessToken, \n  expires_at = :expiresAt,\n  token_expires_at = :tokenExpiresAt,\n  refresh_token = :refreshToken,\n  refresh_token_expires_at = :refreshExpiresAt,\n  salesforce_user_id = :salesforceUserId,\n  is_active = true,\n  updated_at = CURRENT_TIMESTAMP\nWHERE client_id = :clientId\n\t\t\t\t\t\t",
+  "Validate Refresh Token": "\nSELECT client_id, access_token, refresh_token, refresh_token_expires_at, salesforce_user_id, is_active\nFROM api_clients\nWHERE refresh_token = :refreshToken AND refresh_token_expires_at > :currentTime AND is_active = true\n\t\t\t\t\t\t",
+  "Update Tokens": "\nUPDATE api_clients SET \n  access_token = :newAccessToken,\n  expires_at = :tokenExpiresAt,\n  token_expires_at = :tokenExpiresAt,\n  refresh_token = :newRefreshToken,\n  refresh_token_expires_at = :refreshExpiresAt,\n  updated_at = CURRENT_TIMESTAMP\nWHERE client_id = :clientId\n\t\t\t\t\t\t\t\t",
+  "Deactivate User Connection": "\nUPDATE api_clients \nSET is_active = false, \n    updated_at = CURRENT_TIMESTAMP\nWHERE salesforce_user_id = :salesforceUserId \n  AND client_id = :clientId \n  AND is_active = true\n\t\t\t\t\t\t",
+  "Select Employee Goals": "\nSELECT goal FROM employee_goals WHERE employee_id = :employeeId\n",
+  "Select Learning Status": "\nSELECT course, status FROM employee_learning WHERE employee_id = :employeeId\n",
+  "Select Next Pay Date": "\nSELECT next_pay_date FROM employee_pto WHERE employee_id = :employeeId\n",
+  "Select PTO Balance": "\nSELECT pto_balance FROM employee_pto WHERE employee_id = :employeeId\n",
+  "Insert or Update PTO Schedule": "\nINSERT INTO employee_pto (employee_id, next_pay_date)\nVALUES (:employeeId, :endDate)\nON CONFLICT (employee_id) DO UPDATE SET\nnext_pay_date = :endDate\n"
+}
